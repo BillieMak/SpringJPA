@@ -1,16 +1,19 @@
 package com.bolsadeideas.springboot.app.controllers;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.net.MalformedURLException;
+
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.Resource;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.validation.BindingResult;
@@ -26,6 +29,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.bolsadeideas.springboot.app.models.entity.Cliente;
 import com.bolsadeideas.springboot.app.models.service.IClienteService;
+import com.bolsadeideas.springboot.app.models.service.IUploadFileService;
 import com.bolsadeideas.springboot.app.util.paginator.PageRender;
 
 import jakarta.validation.Valid;
@@ -45,24 +49,43 @@ public class ClienteController {
 	@Autowired
 	private IClienteService clienteService;
 
+	@Autowired
+	private IUploadFileService uploadFileService;
+
+	@GetMapping(value = "/uploads/{filename:.+}")
+	public ResponseEntity<Resource> verFoto(@PathVariable String filename) {
+
+		Resource recurso = null;
+
+		try {
+			recurso = uploadFileService.load(filename);
+		} catch (MalformedURLException e) {
+			e.printStackTrace();
+		}
+
+		return ResponseEntity.ok()
+				.header(HttpHeaders.CONTENT_DISPOSITION, "Attachment; filename=\\" + recurso.getFilename() + "\"")
+				.body(recurso);
+	}
+
 	/*
 	 * @RequestMapping(value = "/listar", method = RequestMethod.GET) public String
 	 * listar(Model model) { model .addAttribute("titulo", "Listado Clientes");
 	 * model.addAttribute("clientes",clienteService.findAll()); return "listar"; }
 	 */
 
-	@GetMapping(value="/ver/{id}")
-	public String ver(@PathVariable(value= "id") Long id, Map<String, Object> model) {
-		
+	@GetMapping(value = "/ver/{id}")
+	public String ver(@PathVariable(value = "id") Long id, Map<String, Object> model) {
+
 		Cliente cliente = clienteService.findyOne(id);
-		
-		if(cliente == null) {
+
+		if (cliente == null) {
 			return "redirect:/listar";
 		}
-		
+
 		model.put("cliente", cliente);
 		model.put("titulo", "Detalle Cliente: " + cliente.getNombre());
-		
+
 		return "ver";
 	}
 
@@ -114,7 +137,13 @@ public class ClienteController {
 	public String eliminar(@PathVariable(value = "id") Long id) {
 
 		if (id > 0) {
+			Cliente cliente = clienteService.findyOne(id);
 			clienteService.delete(id);
+
+			if (uploadFileService.delete(cliente.getFoto())) {
+				// do something
+			}
+
 		}
 
 		return "redirect:/listar";
@@ -130,19 +159,22 @@ public class ClienteController {
 		}
 
 		if (!foto.isEmpty()) {
-			
-			String rootPath = "C://Temp//uploads";
+
+			if (cliente.getId() != null && cliente.getId() > 0 && cliente.getFoto() != null
+					&& cliente.getFoto().length() > 0) {
+				uploadFileService.delete(cliente.getFoto());
+
+			}
+
+			String uniqueFileName = null;
+
 			try {
-				byte[] bytes = foto.getBytes();
-
-				Path rutaCompleta = Paths.get(rootPath + "//" + foto.getOriginalFilename());
-				Files.write(rutaCompleta, bytes);
-
-				cliente.setFoto(foto.getOriginalFilename());
+				uniqueFileName = uploadFileService.copy(foto);
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
+
+			cliente.setFoto(uniqueFileName);
 		}
 
 		clienteService.save(cliente);
